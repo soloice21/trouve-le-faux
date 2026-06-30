@@ -1,0 +1,11 @@
+# Configuration de déploiement Render.com
+# Render lit ce fichier automatiquement et crée le service web.
+services:
+  - type: web
+    name: trouve-le-faux
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    autoDeploy: true
+    healthCheckPath: /
