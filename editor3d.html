@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Éditeur 3D — Mode Murder</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;overflow:hidden;background:#0e1018;color:#e7e9f2;font-family:'Segoe UI',system-ui,sans-serif;}
+  #wrap{display:flex;height:100%;}
+  #side{width:300px;flex:0 0 300px;background:#171b2c;border-right:1px solid #2a3048;padding:14px;overflow-y:auto;}
+  #side h1{font-size:18px;margin-bottom:2px;} #side .muted{color:#8a90a8;font-size:12px;margin-bottom:12px;}
+  .grp{background:#11151f;border:1px solid #262c40;border-radius:12px;padding:11px;margin-bottom:11px;}
+  .grp h2{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#9aa0bc;margin-bottom:9px;}
+  label.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;font-size:13px;}
+  input[type=number],input[type=text]{background:#1c2236;border:1px solid #384062;color:#fff;border-radius:8px;padding:6px 8px;font-size:13px;width:120px;}
+  input[type=color]{width:40px;height:28px;border:none;background:none;padding:0;cursor:pointer;}
+  .tools{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .tool{padding:8px 6px;border:1px solid #384062;border-radius:9px;background:#1c2236;cursor:pointer;text-align:center;font-size:12.5px;user-select:none;}
+  .tool.active{background:#2d3a6b;border-color:#5b6fd6;color:#fff;}
+  .btn{display:block;width:100%;padding:10px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:14px;margin-top:8px;}
+  .btn.save{background:linear-gradient(135deg,#7be0a0,#3aa86a);color:#06281a;}
+  .btn.danger{background:#5a2330;color:#ffb4b4;} .btn.ghost{background:#222a40;color:#dfe3f2;}
+  .row2{display:flex;gap:8px;} .row2 .btn{margin-top:0;}
+  #status{font-size:12.5px;min-height:18px;margin-top:6px;}
+  #view{flex:1;position:relative;} canvas{display:block;width:100%;height:100%;}
+  .hint{position:absolute;left:12px;bottom:10px;font-size:12px;color:#9aa0bc;background:rgba(10,12,20,.72);padding:8px 12px;border-radius:8px;pointer-events:none;max-width:60%;}
+  a.link{color:#9fb4ff;text-decoration:none;font-size:13px;}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <h1>🧱 Éditeur 3D — Murder</h1>
+    <div class="muted">Conçois la map du mode 3D. « Enregistrer » l'applique à la prochaine manche.</div>
+
+    <div class="grp">
+      <h2>Map</h2>
+      <label class="row">Largeur <input type="number" id="mW" min="800" max="12000" step="100"></label>
+      <label class="row">Profondeur <input type="number" id="mH" min="600" max="12000" step="100"></label>
+      <label class="row">Sol <input type="color" id="mFloor"></label>
+    </div>
+
+    <div class="grp">
+      <h2>Outil — Structure &amp; mobilier</h2>
+      <div class="tools" id="tools1"></div>
+      <h2 style="margin-top:10px">⛩️ Japon</h2>
+      <div class="tools" id="tools2"></div>
+      <h2 style="margin-top:10px">⚽ Football</h2>
+      <div class="tools" id="tools3"></div>
+    </div>
+
+    <div class="grp" id="selBox">
+      <h2>Élément sélectionné</h2>
+      <div id="noSel" class="muted">Aucun (outil ✋ Sélection, clique un objet).</div>
+      <div id="selProps" class="hidden">
+        <label class="row">Largeur <input type="number" id="selW" min="8" step="10"></label>
+        <label class="row">Profondeur <input type="number" id="selH" min="8" step="10"></label>
+        <label class="row" id="selColorRow">Couleur <input type="color" id="selColor"></label>
+        <div class="row2" style="margin-top:6px">
+          <button class="btn ghost" id="rotL">⟲ Pivoter</button>
+          <button class="btn ghost" id="rotR">Pivoter ⟳</button>
+        </div>
+        <button class="btn danger" id="delItem" style="margin-top:8px">Supprimer (Suppr)</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <button class="btn save" id="save">💾 Enregistrer la map Murder</button>
+      <div id="status"></div>
+    </div>
+    <a class="link" href="murder.html">🎮 Tester en jeu</a> &nbsp;·&nbsp; <a class="link" href="play.html">← Menu</a>
+  </div>
+
+  <div id="view">
+    <canvas id="c"></canvas>
+    <div class="hint" id="hint"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="decor.js"></script>
+<script src="decor3d.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const canvas=$('c'); let renderer,scene,camera,raycaster,floorPlane;
+let map={w:6000,h:3800,floor:'#2a2f44',decor:[]};
+let tool='select', selected=null, boxHelper=null, floorMesh=null, gridMesh=null;
+const itemMesh=new Map();   // item -> THREE.Group
+
+const COLORED={rug:1,window:1,painting:1,pitch:1,tatami:1,flag:1};
+const DEF={ wall:[300,44],pc:[120,70],rug:[300,200],pitch:[420,280],tatami:[200,140],window:[180,30],painting:[160,110],barrier:[260,30],
+  plant:[70,70],crate:[70,70],statue:[64,64],sofa:[130,70],table:[96,96],chair:[46,46],fountain:[124,124],lamp:[44,54],
+  torii:[120,140],sakura:[122,116],lantern:[52,68],bonsai:[68,60],pagoda:[120,152],ball:[42,42],goal:[176,66],trophy:[58,82],cone:[36,46],flag:[66,88] };
+const DEFCOL={rug:'#33294a',window:'#9fd6ec',painting:'#4a6fa5',pitch:'#2f8f4a',tatami:'#caa46a',flag:'#d83a3a'};
+
+const TOOLS1=[['select','✋ Sélection'],['wall','🧱 Mur'],['pc','🖥️ PC caméras'],['rug','🟪 Tapis'],['tatami','🟫 Tatami'],['pitch','🟩 Terrain'],['window','🪟 Fenêtre'],['painting','🖼️ Tableau'],['barrier','🚧 Barrière'],['plant','🪴 Plante'],['statue','🗿 Statue'],['sofa','🛋️ Canapé'],['table','🍽️ Table'],['chair','🪑 Chaise'],['fountain','⛲ Fontaine'],['lamp','💡 Lampe'],['crate','📦 Caisse']];
+const TOOLS2=[['torii','⛩️ Torii'],['sakura','🌸 Cerisier'],['lantern','🏮 Lanterne'],['bonsai','🌳 Bonsaï'],['pagoda','🏯 Pagode']];
+const TOOLS3=[['ball','⚽ Ballon'],['goal','🥅 But'],['trophy','🏆 Trophée'],['cone','🔶 Plot'],['flag','🚩 Drapeau']];
+function fillTools(el,list){ el.innerHTML=list.map(t=>`<div class="tool${t[0]==='select'?' active':''}" data-t="${t[0]}">${t[1]}</div>`).join(''); }
+fillTools($('tools1'),TOOLS1); fillTools($('tools2'),TOOLS2); fillTools($('tools3'),TOOLS3);
+document.querySelectorAll('.tool').forEach(b=>b.addEventListener('click',()=>{ tool=b.dataset.t; document.querySelectorAll('.tool').forEach(x=>x.classList.toggle('active',x===b)); }));
+
+// ---- Three ----
+function init(){
+  renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(2,devicePixelRatio));
+  scene=new THREE.Scene(); scene.background=new THREE.Color(0x12141c);
+  camera=new THREE.PerspectiveCamera(60,1,1,40000);
+  scene.add(new THREE.AmbientLight(0xffffff,0.95)); const d=new THREE.DirectionalLight(0xffffff,0.55); d.position.set(0.4,1,0.3); scene.add(d);
+  raycaster=new THREE.Raycaster(); floorPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+  resize(); addEventListener('resize',resize);
+}
+function resize(){ const r=$('view').getBoundingClientRect(); renderer.setSize(r.width,r.height); camera.aspect=r.width/r.height; camera.updateProjectionMatrix(); }
+function rebuildFloor(){
+  if(floorMesh){ if(floorMesh.userData.edge) scene.remove(floorMesh.userData.edge); scene.remove(floorMesh); }
+  if(gridMesh) scene.remove(gridMesh);
+  const fc=new THREE.Color(/^#([0-9a-f]{6})$/i.test(map.floor)?map.floor:'#2a2f44');
+  floorMesh=new THREE.Mesh(new THREE.PlaneGeometry(map.w,map.h),
+    new THREE.MeshLambertMaterial({color:fc,side:THREE.DoubleSide,emissive:fc,emissiveIntensity:0.35}));
+  floorMesh.rotation.x=-Math.PI/2; floorMesh.position.set(map.w/2,0,map.h/2); scene.add(floorMesh);
+  // bordure du sol pour bien le délimiter
+  const edge=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(map.w,map.h)),new THREE.LineBasicMaterial({color:0x6a78b0}));
+  edge.rotation.x=-Math.PI/2; edge.position.set(map.w/2,2,map.h/2); scene.add(edge); floorMesh.userData.edge=edge;
+  gridMesh=new THREE.GridHelper(Math.max(map.w,map.h),Math.round(Math.max(map.w,map.h)/200),0x4a5688,0x2f375a);
+  gridMesh.position.set(map.w/2,1.5,map.h/2); scene.add(gridMesh);
+}
+function addItemMesh(it){ const g=buildDecorMesh(it); g.userData.item=it; scene.add(g); itemMesh.set(it,g); return g; }
+function rebuildItem(it){ const old=itemMesh.get(it); if(old) scene.remove(old); addItemMesh(it); if(selected===it) refreshHelper(); }
+function loadMap(m){
+  for(const g of itemMesh.values()) scene.remove(g); itemMesh.clear(); selected=null;
+  map={ w:m.w, h:m.h, floor:m.floor, decor:m.decor.map(o=>({...o})) };
+  $('mW').value=map.w; $('mH').value=map.h; $('mFloor').value=/^#([0-9a-f]{6})$/i.test(map.floor)?map.floor:'#2a2f44';
+  rebuildFloor(); for(const it of map.decor) addItemMesh(it);
+  target.set(map.w/2,0,map.h/2); dist=Math.max(map.w,map.h)*0.7; updateSelUI();
+}
+
+// ---- caméra orbite ----
+const target=new THREE.Vector3(3000,0,1900); let dist=4000, yaw=Math.PI*0.5, pitch=0.95;
+function updateCam(){ camera.position.set(target.x+dist*Math.cos(pitch)*Math.cos(yaw), target.y+dist*Math.sin(pitch), target.z+dist*Math.cos(pitch)*Math.sin(yaw)); camera.lookAt(target); }
+
+// ---- souris ----
+function ndc(e){ const r=canvas.getBoundingClientRect(); return new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1); }
+function floorAt(e){ raycaster.setFromCamera(ndc(e),camera); const p=new THREE.Vector3(); return raycaster.ray.intersectPlane(floorPlane,p)?p:null; }
+function pick(e){ raycaster.setFromCamera(ndc(e),camera); const hits=raycaster.intersectObjects([...itemMesh.values()],true);
+  for(const h of hits){ let o=h.object; while(o){ if(o.userData&&o.userData.item) return o.userData.item; o=o.parent; } } return null; }
+let orbiting=false,panning=false,dragItem=null,lastX=0,lastY=0;
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('pointerdown',e=>{
+  lastX=e.clientX; lastY=e.clientY;
+  if(e.button===2){ orbiting=true; return; }
+  if(e.button===1){ panning=true; e.preventDefault(); return; }
+  if(e.button!==0) return;
+  if(tool==='select'){ const it=pick(e); select(it); if(it) dragItem=it; }
+  else { const p=floorAt(e); if(p){ const f=DEF[tool]||[70,70]; const it={type:tool,x:Math.round(p.x-f[0]/2),y:Math.round(p.z-f[1]/2),w:f[0],h:f[1],rot:0};
+    if(COLORED[tool]) it.color=DEFCOL[tool]||'#888888'; map.decor.push(it); addItemMesh(it); select(it); } }
+});
+addEventListener('pointermove',e=>{
+  const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY;
+  if(orbiting){ yaw+=dx*0.005; pitch=Math.max(0.18,Math.min(1.45,pitch+dy*0.005)); }
+  else if(panning){ const s=dist*0.0016; const rg=new THREE.Vector3(Math.sin(yaw),0,-Math.cos(yaw)); const fw=new THREE.Vector3(Math.cos(yaw),0,Math.sin(yaw));
+    target.addScaledVector(rg,-dx*s); target.addScaledVector(fw,dy*s); }
+  else if(dragItem){ const p=floorAt(e); if(p){ dragItem.x=Math.round(p.x-dragItem.w/2); dragItem.y=Math.round(p.z-dragItem.h/2); const g=itemMesh.get(dragItem); g.position.set(dragItem.x+dragItem.w/2,0,dragItem.y+dragItem.h/2); } }
+});
+addEventListener('pointerup',()=>{ orbiting=panning=false; dragItem=null; });
+canvas.addEventListener('wheel',e=>{ e.preventDefault(); dist=Math.max(300,Math.min(16000,dist*(e.deltaY>0?1.1:0.9))); },{passive:false});
+
+// ---- sélection ----
+function refreshHelper(){ if(boxHelper){ scene.remove(boxHelper); boxHelper=null; } if(selected){ const g=itemMesh.get(selected); boxHelper=new THREE.BoxHelper(g,0xffd23f); scene.add(boxHelper); } }
+function select(it){ selected=it; refreshHelper(); updateSelUI(); }
+function updateSelUI(){
+  if(!selected){ $('noSel').classList.remove('hidden'); $('selProps').classList.add('hidden'); return; }
+  $('noSel').classList.add('hidden'); $('selProps').classList.remove('hidden');
+  $('selW').value=selected.w; $('selH').value=selected.h;
+  if(COLORED[selected.type]){ $('selColorRow').classList.remove('hidden'); $('selColor').value=/^#([0-9a-f]{6})$/i.test(selected.color||'')?selected.color:(DEFCOL[selected.type]||'#888888'); }
+  else $('selColorRow').classList.add('hidden');
+}
+function rotateSel(d){ if(!selected) return; selected.rot=(selected.rot||0)+d*Math.PI/12; if(Math.abs(selected.rot)<1e-6) selected.rot=0; itemMesh.get(selected).rotation.y=-selected.rot; refreshHelper(); }
+function delSel(){ if(!selected) return; const g=itemMesh.get(selected); if(g) scene.remove(g); itemMesh.delete(selected); map.decor.splice(map.decor.indexOf(selected),1); selected=null; refreshHelper(); updateSelUI(); }
+$('rotL').addEventListener('click',()=>rotateSel(-1)); $('rotR').addEventListener('click',()=>rotateSel(1));
+$('delItem').addEventListener('click',delSel);
+$('selW').addEventListener('change',e=>{ if(selected){ selected.w=Math.max(8,+e.target.value||70); rebuildItem(selected); } });
+$('selH').addEventListener('change',e=>{ if(selected){ selected.h=Math.max(8,+e.target.value||70); rebuildItem(selected); } });
+$('selColor').addEventListener('input',e=>{ if(selected){ selected.color=e.target.value; rebuildItem(selected); } });
+addEventListener('keydown',e=>{
+  if(/INPUT|TEXTAREA/.test((e.target.tagName||''))) return;
+  if(e.key==='Delete'||e.key==='Backspace') delSel();
+  else if(e.key==='r'||e.key==='R') rotateSel(e.shiftKey?-1:1);
+  else if(e.key==='Escape') select(null);
+});
+
+// ---- propriétés map ----
+$('mW').addEventListener('change',e=>{ map.w=Math.max(800,Math.min(12000,+e.target.value||6000)); rebuildFloor(); });
+$('mH').addEventListener('change',e=>{ map.h=Math.max(600,Math.min(12000,+e.target.value||3800)); rebuildFloor(); });
+$('mFloor').addEventListener('input',e=>{ map.floor=e.target.value; rebuildFloor(); });
+
+// ---- save / load ----
+$('save').addEventListener('click',()=>{
+  $('status').style.color='#9aa0bc'; $('status').textContent='Enregistrement…';
+  fetch('/api/murdermap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(map)})
+    .then(r=>r.json()).then(d=>{ if(d.ok){ $('status').style.color='#7be0a0'; $('status').textContent=`✓ Map enregistrée (${d.decor} objets).`; }
+      else { $('status').style.color='#ff6b6b'; $('status').textContent='Erreur : '+(d.error||'?'); } })
+    .catch(()=>{ $('status').style.color='#ff6b6b'; $('status').textContent='Erreur de connexion.'; });
+});
+$('hint').innerHTML='<b>Clic gauche</b> : placer / sélectionner · <b>glisser</b> un objet pour le déplacer · <b>clic droit</b> : tourner la vue · <b>molette</b> : zoom · <b>clic molette</b> : déplacer la vue · <b>R</b> pivoter · <b>Suppr</b> effacer.';
+
+init();
+fetch('/api/murdermap').then(r=>r.json()).then(m=>loadMap(m)).catch(()=>{ rebuildFloor(); });
+(function loop(){ updateCam(); if(boxHelper) boxHelper.update(); renderer.render(scene,camera); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>

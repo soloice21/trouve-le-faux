@@ -1,0 +1,13 @@
+{
+  "name": "trouve-le-faux",
+  "version": "1.0.0",
+  "description": "Jeu multijoueur : trouve les autres vrais joueurs dans la foule et élimine-les.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

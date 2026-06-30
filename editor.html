@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trouve le Faux — Éditeur de maps</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; background:#0e1018; color:#e7e9f2; font-family:'Segoe UI',system-ui,sans-serif; }
+  #wrap { display:flex; height:100%; }
+  #side { width:300px; flex:0 0 300px; background:#171b2c; border-right:1px solid #2a3048; padding:16px; overflow-y:auto; }
+  #side h1 { font-size:19px; margin-bottom:4px; }
+  #side .muted { color:#8a90a8; font-size:12px; margin-bottom:14px; }
+  .grp { background:#11151f; border:1px solid #262c40; border-radius:12px; padding:12px; margin-bottom:12px; }
+  .grp h2 { font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:#9aa0bc; margin-bottom:10px; }
+  label.row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; font-size:13px; }
+  input[type=text], input[type=number], select { background:#1c2236;
+    border:1px solid #384062; color:#fff; border-radius:8px; padding:7px 9px; font-size:13px; width:140px; }
+  input[type=color] { width:42px; height:30px; border:none; background:none; padding:0; cursor:pointer; }
+  select { width:100%; }
+  .tools { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .tool { padding:10px 8px; border:1px solid #384062; border-radius:10px; background:#1c2236; cursor:pointer;
+    text-align:center; font-size:13px; user-select:none; }
+  .tool.active { background:#2d3a6b; border-color:#5b6fd6; color:#fff; }
+  .btn { display:block; width:100%; padding:10px; border:none; border-radius:10px; cursor:pointer; font-weight:700;
+    font-size:14px; margin-top:8px; }
+  .btn.save { background:linear-gradient(135deg,#7be0a0,#3aa86a); color:#06281a; }
+  .btn.ghost { background:#222a40; color:#dfe3f2; }
+  .btn.danger { background:#5a2330; color:#ffb4b4; }
+  .row2 { display:flex; gap:8px; }
+  .row2 .btn { margin-top:0; }
+  #status { font-size:12.5px; min-height:18px; margin-top:6px; }
+  #canvasWrap { flex:1; position:relative; }
+  canvas { display:block; width:100%; height:100%; cursor:crosshair; }
+  .hint { position:absolute; left:14px; bottom:12px; font-size:12px; color:#9aa0bc;
+    background:rgba(10,12,20,.7); padding:8px 12px; border-radius:8px; pointer-events:none; }
+  a.link { color:#9fb4ff; text-decoration:none; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <h1>🎨 Éditeur de maps</h1>
+    <div class="muted">Crée tes salles. « Enregistrer » met à jour le jeu aussitôt.</div>
+
+    <div class="grp">
+      <h2>Map</h2>
+      <select id="mapSel"></select>
+      <div class="row2" style="margin-top:8px">
+        <button class="btn ghost" id="newMap">＋ Nouvelle</button>
+        <button class="btn danger" id="delMap">🗑 Supprimer</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>Propriétés</h2>
+      <label class="row">Nom <input type="text" id="mName" maxlength="30"></label>
+      <label class="row">Largeur <input type="number" id="mW" min="600" max="4000" step="50"></label>
+      <label class="row">Hauteur <input type="number" id="mH" min="400" max="4000" step="50"></label>
+      <label class="row">Sol <input type="color" id="mFloor"></label>
+    </div>
+
+    <div class="grp">
+      <h2>Outil — Base &amp; mobilier</h2>
+      <div class="tools">
+        <div class="tool active" data-tool="select">✋ Déplacer</div>
+        <div class="tool" data-tool="rug">🟪 Tapis</div>
+        <div class="tool" data-tool="tatami">🟫 Tatami</div>
+        <div class="tool" data-tool="pitch">🟩 Terrain</div>
+        <div class="tool" data-tool="window">🪟 Fenêtre</div>
+        <div class="tool" data-tool="painting">🖼️ Tableau</div>
+        <div class="tool" data-tool="barrier">🚧 Barrière</div>
+        <div class="tool" data-tool="plant">🪴 Plante</div>
+        <div class="tool" data-tool="statue">🗿 Statue</div>
+        <div class="tool" data-tool="sofa">🛋️ Canapé</div>
+        <div class="tool" data-tool="table">🍽️ Table</div>
+        <div class="tool" data-tool="chair">🪑 Chaise</div>
+        <div class="tool" data-tool="fountain">⛲ Fontaine</div>
+        <div class="tool" data-tool="lamp">💡 Lampe</div>
+        <div class="tool" data-tool="crate">📦 Caisse</div>
+      </div>
+      <h2 style="margin-top:12px">⛩️ Japon</h2>
+      <div class="tools">
+        <div class="tool" data-tool="torii">⛩️ Torii</div>
+        <div class="tool" data-tool="sakura">🌸 Cerisier</div>
+        <div class="tool" data-tool="lantern">🏮 Lanterne</div>
+        <div class="tool" data-tool="bonsai">🌳 Bonsaï</div>
+        <div class="tool" data-tool="pagoda">🏯 Pagode</div>
+      </div>
+      <h2 style="margin-top:12px">⚽ Football / Coupe du monde</h2>
+      <div class="tools">
+        <div class="tool" data-tool="ball">⚽ Ballon</div>
+        <div class="tool" data-tool="goal">🥅 But</div>
+        <div class="tool" data-tool="trophy">🏆 Trophée</div>
+        <div class="tool" data-tool="cone">🔶 Plot</div>
+        <div class="tool" data-tool="flag">🚩 Drapeau</div>
+      </div>
+      <label class="row" style="margin-top:10px">Couleur (tapis, vitre, tableau, terrain, drapeau…) <input type="color" id="rugColor" value="#33294a"></label>
+      <div class="row2" style="margin-top:8px">
+        <button class="btn ghost" id="rotL">⟲ Pivoter</button>
+        <button class="btn ghost" id="rotR">Pivoter ⟳</button>
+      </div>
+      <button class="btn danger" id="delItem" style="margin-top:8px">Supprimer l'élément sélectionné</button>
+    </div>
+
+    <div class="grp">
+      <button class="btn save" id="save">💾 Enregistrer toutes les maps</button>
+      <div id="status"></div>
+    </div>
+
+    <a class="link" href="play.html">← Retour au jeu</a>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="c"></canvas>
+    <div class="hint" id="hint"></div>
+  </div>
+</div>
+
+<script src="decor.js"></script>
+<script>
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+let maps = [], cur = 0, tool = 'select', selected = null;
+let drag = null;      // déplacement d'un élément
+let rugDraw = null;   // dessin d'un tapis en cours
+
+const $ = id => document.getElementById(id);
+const status = $('status');
+
+function blankMap() { return { name:'Ma map', w:1500, h:950, floor:'#2a2f44', decor:[] }; }
+const M = () => maps[cur];
+
+// ---- Chargement ----
+fetch('/api/maps').then(r=>r.json()).then(d=>{
+  maps = Array.isArray(d) && d.length ? d : [blankMap()];
+  cur = 0; refreshMapList(); loadFields(); resize();
+}).catch(()=>{ maps=[blankMap()]; cur=0; refreshMapList(); loadFields(); resize(); });
+
+function refreshMapList() {
+  const sel = $('mapSel'); sel.innerHTML = '';
+  maps.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=`${i+1}. ${m.name}`; sel.appendChild(o); });
+  sel.value = cur;
+}
+function loadFields() {
+  const m = M(); $('mName').value = m.name; $('mW').value = m.w; $('mH').value = m.h; $('mFloor').value = toHex(m.floor);
+  resetView();
+}
+function rotateSelected(dir){ if(selected){ selected.rot = (selected.rot||0) + dir*Math.PI/12; if(Math.abs(selected.rot)<1e-6) selected.rot=0; } }
+function toHex(c){ return /^#([0-9a-f]{6})$/i.test(c) ? c : '#2a2f44'; }
+
+$('mapSel').addEventListener('change', e=>{ cur=+e.target.value; selected=null; loadFields(); });
+$('newMap').addEventListener('click', ()=>{ maps.push(blankMap()); cur=maps.length-1; selected=null; refreshMapList(); loadFields(); });
+$('delMap').addEventListener('click', ()=>{
+  if (maps.length<=1){ status.style.color='#ff6b6b'; status.textContent='Il faut au moins une map.'; return; }
+  maps.splice(cur,1); cur=Math.max(0,cur-1); selected=null; refreshMapList(); loadFields();
+});
+$('mName').addEventListener('input', e=>{ M().name=e.target.value; refreshMapList(); $('mapSel').value=cur; });
+$('mW').addEventListener('change', e=>{ M().w=Math.max(600,Math.min(4000,+e.target.value||1500)); });
+$('mH').addEventListener('change', e=>{ M().h=Math.max(400,Math.min(4000,+e.target.value||950)); });
+$('mFloor').addEventListener('input', e=>{ M().floor=e.target.value; });
+
+// outils
+document.querySelectorAll('.tool').forEach(t=>t.addEventListener('click', ()=>{
+  document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); tool=t.dataset.tool; selected=null;
+}));
+$('delItem').addEventListener('click', ()=>{ if(selected){ const i=M().decor.indexOf(selected); if(i>=0)M().decor.splice(i,1); selected=null; } });
+$('rotL').addEventListener('click', ()=>rotateSelected(-1));
+$('rotR').addEventListener('click', ()=>rotateSelected(1));
+addEventListener('keydown', e=>{
+  if((e.key==='Delete'||e.key==='Backspace')&&selected){ const i=M().decor.indexOf(selected); if(i>=0)M().decor.splice(i,1); selected=null; }
+  else if((e.key==='r'||e.key==='R')&&selected){ rotateSelected(e.shiftKey?-1:1); }
+});
+
+// ---- Caméra (zoom molette + déplacement) ----
+let cam={s:1,ox:0,oy:0};
+let zoom=1, panX=0, panY=0;
+function resetView(){ zoom=1; panX=0; panY=0; }
+function resize(){ c.width=c.clientWidth*DPR; c.height=c.clientHeight*DPR; }
+addEventListener('resize', resize);
+function fitScale(){ const m=M(); const pad=40*DPR; return Math.min((c.width-pad)/m.w,(c.height-pad)/m.h); }
+function computeCam(){ const m=M(); cam.s=fitScale()*zoom;
+  cam.ox=(c.width-m.w*cam.s)/2+panX; cam.oy=(c.height-m.h*cam.s)/2+panY; }
+const SX=x=>cam.ox+x*cam.s, SY=y=>cam.oy+y*cam.s;
+const WX=sx=>(sx-cam.ox)/cam.s, WY=sy=>(sy-cam.oy)/cam.s;
+
+// molette = zoom centré sur le curseur
+c.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const p=evPos(e), wx=WX(p.x), wy=WY(p.y);
+  zoom = Math.max(1, Math.min(9, zoom * (e.deltaY<0 ? 1.12 : 1/1.12)));
+  if (zoom<=1.001){ resetView(); return; }
+  computeCam();
+  panX += p.x - SX(wx); panY += p.y - SY(wy);   // garde le point sous le curseur fixe
+}, { passive:false });
+
+// déplacement de la vue : clic droit ou molette enfoncée
+let panning=null;
+c.addEventListener('contextmenu', e=>e.preventDefault());
+c.addEventListener('pointerdown', e=>{ if(e.button===1||e.button===2){ e.preventDefault(); panning={x:e.clientX,y:e.clientY,px:panX,py:panY}; } });
+addEventListener('pointermove', e=>{ if(panning){ panX=panning.px+(e.clientX-panning.x)*DPR; panY=panning.py+(e.clientY-panning.y)*DPR; } });
+addEventListener('pointerup', ()=>{ panning=null; });
+
+// ---- Souris ----
+function evPos(e){ const r=c.getBoundingClientRect(); return { x:(e.clientX-r.left)*DPR, y:(e.clientY-r.top)*DPR }; }
+// SIZED et COLORED proviennent de decor.js
+function hitItem(wx,wy){
+  const d=M().decor;
+  for(let i=d.length-1;i>=0;i--){ const o=d[i]; const [w,h]=decorSize(o);
+    if(wx>=o.x&&wx<=o.x+w&&wy>=o.y&&wy<=o.y+h) return o;
+  } return null;
+}
+c.addEventListener('pointerdown', e=>{
+  if(e.button!==0) return;   // seul le clic gauche place/sélectionne (droit = déplacement vue)
+  const p=evPos(e), wx=WX(p.x), wy=WY(p.y);
+  if(tool==='select'){ const it=hitItem(wx,wy); selected=it; if(it) drag={item:it, ox:wx-it.x, oy:wy-it.y}; }
+  else if(SIZED[tool]){ rugDraw={type:tool, x0:wx,y0:wy,x1:wx,y1:wy}; }
+  else { const f=FP[tool]||[70,70]; const it={type:tool,x:Math.round(wx-f[0]/2),y:Math.round(wy-f[1]/2)}; if(COLORED[tool]) it.color=$('rugColor').value; M().decor.push(it); selected=it; }
+});
+c.addEventListener('pointermove', e=>{
+  if(!drag && !rugDraw) return;
+  const p=evPos(e), wx=WX(p.x), wy=WY(p.y);
+  if(drag){ drag.item.x=Math.round(wx-drag.ox); drag.item.y=Math.round(wy-drag.oy); }
+  else if(rugDraw){ rugDraw.x1=wx; rugDraw.y1=wy; }
+});
+addEventListener('pointerup', ()=>{
+  if(rugDraw){
+    const x=Math.round(Math.min(rugDraw.x0,rugDraw.x1)), y=Math.round(Math.min(rugDraw.y0,rugDraw.y1));
+    let w=Math.round(Math.abs(rugDraw.x1-rugDraw.x0)), h=Math.round(Math.abs(rugDraw.y1-rugDraw.y0));
+    if(w>10&&h>10){
+      const it={type:rugDraw.type,x,y,w:Math.max(12,w),h:Math.max(12,h)};
+      if(COLORED[rugDraw.type]) it.color=$('rugColor').value;
+      M().decor.push(it); selected=it;
+    }
+    rugDraw=null;
+  }
+  drag=null;
+});
+
+// ---- Rendu : FP, decorSize, paintDecor sont définis dans decor.js ----
+function drawDecor(o){ paintDecor(ctx, o, cam.s, SX(o.x), SY(o.y)); }
+function outline(o){
+  const s=cam.s, [w,h]=decorSize(o), cx=SX(o.x)+w*s/2, cy=SY(o.y)+h*s/2;
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(o.rot||0);
+  ctx.strokeStyle='#ffd23f'; ctx.lineWidth=2.5*DPR; ctx.setLineDash([6*DPR,4*DPR]);
+  ctx.strokeRect(-w*s/2,-h*s/2,w*s,h*s);
+  ctx.setLineDash([]); ctx.restore();
+}
+function render(){
+  const m=M(); if(!m){ requestAnimationFrame(render); return; }
+  computeCam();
+  ctx.fillStyle='#0e1018'; ctx.fillRect(0,0,c.width,c.height);
+  ctx.fillStyle=toHex(m.floor); ctx.fillRect(SX(0),SY(0),m.w*cam.s,m.h*cam.s);
+  // grille
+  ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
+  for(let gx=0; gx<=m.w; gx+=100){ ctx.beginPath(); ctx.moveTo(SX(gx),SY(0)); ctx.lineTo(SX(gx),SY(m.h)); ctx.stroke(); }
+  for(let gy=0; gy<=m.h; gy+=100){ ctx.beginPath(); ctx.moveTo(SX(0),SY(gy)); ctx.lineTo(SX(m.w),SY(gy)); ctx.stroke(); }
+  // déco
+  for(const o of m.decor) drawDecor(o);
+  // élément redimensionnable en cours de dessin (aperçu)
+  if(rugDraw){ const x=Math.round(Math.min(rugDraw.x0,rugDraw.x1)),y=Math.round(Math.min(rugDraw.y0,rugDraw.y1)),
+    w=Math.abs(rugDraw.x1-rugDraw.x0),h=Math.abs(rugDraw.y1-rugDraw.y0);
+    const tmp={type:rugDraw.type,x,y,w:Math.max(1,w),h:Math.max(1,h)};
+    if(COLORED[rugDraw.type]) tmp.color=$('rugColor').value;
+    ctx.globalAlpha=0.6; paintDecor(ctx,tmp,cam.s,SX(x),SY(y)); ctx.globalAlpha=1; }
+  // murs (bordure)
+  ctx.strokeStyle='#4a5172'; ctx.lineWidth=12*cam.s;
+  ctx.strokeRect(SX(6),SY(6),(m.w-12)*cam.s,(m.h-12)*cam.s);
+  if(selected && m.decor.includes(selected)) outline(selected);
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+$('hint').innerHTML = 'Objets <b>redimensionnables</b> : clique-glisse · <b>autres</b> : clique pour poser · <b>Déplacer</b> : glisse · <b>R</b> pivoter (Maj+R inverse) · <b>Suppr</b> effacer · <b>molette</b> zoom · <b>clic droit</b> déplacer la vue.';
+
+// ---- Sauvegarde ----
+$('save').addEventListener('click', ()=>{
+  status.style.color='#9aa0bc'; status.textContent='Enregistrement…';
+  fetch('/api/maps', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(maps) })
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){ status.style.color='#7be0a0'; status.textContent=`✓ ${d.count} map(s) enregistrée(s) ! Elles seront jouées en partie.`; }
+      else { status.style.color='#ff6b6b'; status.textContent='Erreur : '+(d.error||'inconnue'); }
+    }).catch(()=>{ status.style.color='#ff6b6b'; status.textContent='Erreur de connexion au serveur.'; });
+});
+</script>
+</body>
+</html>

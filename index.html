@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trouve le Faux</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #1a1d29; font-family: 'Segoe UI', system-ui, sans-serif; }
+  #game { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+
+  .ui {
+    position: fixed; pointer-events: none; color: #fff;
+    text-shadow: 0 2px 6px rgba(0,0,0,.6);
+  }
+  #hud { top: 16px; left: 16px; font-size: 15px; line-height: 1.6; }
+  #hud b { color: #ff5b6e; }
+  #hud .crowd { color: #9aa0b4; }
+
+  #punchBtn {
+    position: fixed; bottom: 24px; right: 24px;
+    width: 96px; height: 96px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #ff7b8a, #d8324a);
+    border: 3px solid #fff; color: #fff; font-size: 14px; font-weight: 700;
+    box-shadow: 0 8px 20px rgba(216,50,74,.5); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none;
+  }
+  #punchBtn:active { transform: scale(.92); }
+
+  #overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: rgba(15,17,26,.82); backdrop-filter: blur(4px);
+    color: #fff; z-index: 10; padding: 24px;
+  }
+  #overlay h1 { font-size: clamp(28px, 6vw, 56px); margin-bottom: 12px; }
+  #overlay p { font-size: 16px; max-width: 520px; line-height: 1.7; color: #c8ccdc; margin-bottom: 24px; }
+  #overlay .hl { color: #ff5b6e; font-weight: 700; }
+  #overlay button {
+    pointer-events: auto; padding: 14px 38px; font-size: 18px; font-weight: 700;
+    border: none; border-radius: 12px; cursor: pointer; color: #fff;
+    background: linear-gradient(135deg, #ff7b8a, #d8324a);
+    box-shadow: 0 8px 20px rgba(216,50,74,.5);
+  }
+  #overlay button:active { transform: scale(.96); }
+  .hidden { display: none !important; }
+  .keys { font-size: 13px; color: #8a90a4; margin-top: 18px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="ui"></div>
+<button id="punchBtn">COUP DE<br>POING</button>
+
+<div id="overlay">
+  <h1>🕵️ Trouve le Faux</h1>
+  <p>
+    Une foule de <span class="hl">PNJ identiques</span> erre sur la place.
+    Parmi eux se cachent <span class="hl">3 vrais joueurs</span> au skin rouge — dont toi.<br><br>
+    Repère les <b>2 autres</b> et élimine-les d'un coup de poing avant qu'ils ne te trouvent.
+    Reste mêlé à la foule pour ne pas te faire repérer !
+  </p>
+  <button id="startBtn">JOUER</button>
+  <div class="keys">Déplacement : <b>ZQSD / flèches</b> &nbsp;·&nbsp; Frapper : <b>Espace / clic</b></div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+const punchBtn = document.getElementById('punchBtn');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth * devicePixelRatio;
+  H = canvas.height = window.innerHeight * devicePixelRatio;
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+const DPR = () => devicePixelRatio;
+
+// ---- Couleurs des skins ----
+const CROWD_SKIN = '#7d8398';   // PNJ identiques (gris-bleu)
+const HUNTER_SKIN = '#e23b53';  // les 3 vrais joueurs (rouge)
+const PUNCH_RANGE = 70;         // portée du coup de poing
+const PUNCH_COOLDOWN = 700;     // ms
+
+let agents = [];   // tous les personnages
+let player = null;
+let running = false;
+let lastTime = 0;
+let message = '';
+let messageT = 0;
+
+function rand(a, b) { return a + Math.random() * (b - a); }
+
+class Agent {
+  constructor(x, y, isHunter, isPlayer = false) {
+    this.x = x; this.y = y;
+    this.r = 14;
+    this.isHunter = isHunter;
+    this.isPlayer = isPlayer;
+    this.alive = true;
+    this.angle = rand(0, Math.PI * 2);
+    this.speed = isHunter ? 95 : rand(40, 70);
+    this.vx = 0; this.vy = 0;
+    this.wanderT = 0;
+    this.bob = rand(0, 10);
+    this.punchT = 0;          // cooldown
+    this.punchAnim = 0;       // animation visuelle
+    this.target = null;
+    this.legPhase = rand(0, 6);
+  }
+
+  // IA des PNJ : marche aléatoire douce
+  wanderAI(dt) {
+    this.wanderT -= dt;
+    if (this.wanderT <= 0) {
+      this.angle += rand(-0.9, 0.9);
+      this.wanderT = rand(0.6, 1.8);
+    }
+    this.vx = Math.cos(this.angle) * this.speed;
+    this.vy = Math.sin(this.angle) * this.speed;
+  }
+
+  // IA des chasseurs bots : errent, et frappent un chasseur proche
+  hunterAI(dt) {
+    // chercher un autre chasseur vivant proche
+    let nearest = null, nd = 99999;
+    for (const a of agents) {
+      if (a === this || !a.alive || !a.isHunter) continue;
+      const d = Math.hypot(a.x - this.x, a.y - this.y);
+      if (d < nd) { nd = d; nearest = a; }
+    }
+    const px = DPR();
+    if (nearest && nd < 220 * px) {
+      // traque
+      this.angle = Math.atan2(nearest.y - this.y, nearest.x - this.x);
+      this.vx = Math.cos(this.angle) * this.speed * 1.15;
+      this.vy = Math.sin(this.angle) * this.speed * 1.15;
+      if (nd < PUNCH_RANGE * px) this.tryPunch();
+    } else {
+      this.wanderAI(dt);
+    }
+  }
+
+  tryPunch() {
+    if (this.punchT > 0 || !this.alive) return;
+    this.punchT = PUNCH_COOLDOWN;
+    this.punchAnim = 1;
+    const px = DPR();
+    let hit = null, hd = PUNCH_RANGE * px;
+    for (const a of agents) {
+      if (a === this || !a.alive || !a.isHunter) continue;
+      const d = Math.hypot(a.x - this.x, a.y - this.y);
+      if (d <= hd) { hd = d; hit = a; }
+    }
+    if (hit) {
+      hit.alive = false;
+      hit.deathT = 1;
+      if (hit === player) endGame(false);
+      else if (this === player) {
+        const left = agents.filter(a => a.isHunter && a.alive && a !== player).length;
+        flash(left > 0 ? `Éliminé ! Encore ${left} vrai${left>1?'s':''} joueur${left>1?'s':''}.` : '');
+        if (left === 0) endGame(true);
+      }
+    }
+  }
+
+  update(dt) {
+    if (!this.alive) { this.deathT = Math.max(0, (this.deathT||0) - dt*2); return; }
+    if (this.punchT > 0) this.punchT -= dt * 1000;
+    if (this.punchAnim > 0) this.punchAnim = Math.max(0, this.punchAnim - dt * 4);
+
+    if (this.isPlayer) {
+      this.playerControl(dt);
+    } else if (this.isHunter) {
+      this.hunterAI(dt);
+    } else {
+      this.wanderAI(dt);
+    }
+
+    this.x += this.vx * DPR() * dt;
+    this.y += this.vy * DPR() * dt;
+
+    // rebond sur les bords
+    const m = 24 * DPR();
+    if (this.x < m) { this.x = m; this.angle = Math.PI - this.angle; }
+    if (this.x > W - m) { this.x = W - m; this.angle = Math.PI - this.angle; }
+    if (this.y < m) { this.y = m; this.angle = -this.angle; }
+    if (this.y > H - m) { this.y = H - m; this.angle = -this.angle; }
+
+    const moving = Math.hypot(this.vx, this.vy) > 5;
+    if (moving) this.legPhase += dt * 12;
+  }
+
+  playerControl(dt) {
+    let dx = 0, dy = 0;
+    if (keys['arrowup'] || keys['w'] || keys['z']) dy -= 1;
+    if (keys['arrowdown'] || keys['s']) dy += 1;
+    if (keys['arrowleft'] || keys['a'] || keys['q']) dx -= 1;
+    if (keys['arrowright'] || keys['d']) dx += 1;
+    const len = Math.hypot(dx, dy) || 1;
+    this.vx = (dx / len) * this.speed;
+    this.vy = (dy / len) * this.speed;
+    if (dx || dy) this.angle = Math.atan2(dy, dx);
+  }
+
+  draw() {
+    const px = DPR();
+    const r = this.r * px;
+    let alpha = this.alive ? 1 : Math.max(0, this.deathT || 0);
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(this.x, this.y);
+
+    const color = this.isHunter ? HUNTER_SKIN : CROWD_SKIN;
+    const bobY = Math.sin(this.legPhase) * 2 * px;
+
+    // ombre
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.95, r * 0.9, r * 0.35, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    ctx.fill();
+
+    // jambes
+    const legSwing = Math.sin(this.legPhase) * r * 0.4;
+    ctx.strokeStyle = color; ctx.lineWidth = r * 0.32; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-r*0.3, r*0.4 + bobY); ctx.lineTo(-r*0.3 + legSwing, r*1.1 + bobY);
+    ctx.moveTo(r*0.3, r*0.4 + bobY); ctx.lineTo(r*0.3 - legSwing, r*1.1 + bobY);
+    ctx.stroke();
+
+    // corps
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(-r*0.7, -r*0.6 + bobY, r*1.4, r*1.4, r*0.5)
+                  : ctx.rect(-r*0.7, -r*0.6 + bobY, r*1.4, r*1.4);
+    ctx.fillStyle = color; ctx.fill();
+
+    // bras / poing (s'étend en frappant)
+    const reach = r * (0.7 + this.punchAnim * 1.4);
+    const ax = Math.cos(this.angle) * reach;
+    const ay = Math.sin(this.angle) * reach + bobY;
+    ctx.strokeStyle = color; ctx.lineWidth = r * 0.34;
+    ctx.beginPath(); ctx.moveTo(0, bobY); ctx.lineTo(ax, ay); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ax, ay, r*0.28, 0, Math.PI*2);
+    ctx.fillStyle = this.punchAnim > 0 ? '#fff' : color; ctx.fill();
+
+    // tête
+    ctx.beginPath();
+    ctx.arc(0, -r*0.95 + bobY, r*0.55, 0, Math.PI*2);
+    ctx.fillStyle = '#f1d2b3'; ctx.fill();
+
+    ctx.restore();
+
+    // marqueur du joueur
+    if (this.isPlayer && this.alive) {
+      ctx.save();
+      ctx.translate(this.x, this.y - r*2.4);
+      ctx.beginPath();
+      ctx.moveTo(0, 6*px); ctx.lineTo(-7*px, -6*px); ctx.lineTo(7*px, -6*px); ctx.closePath();
+      ctx.fillStyle = '#ffd23f'; ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === ' ' && player && player.alive) { e.preventDefault(); player.tryPunch(); }
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+canvas.addEventListener('pointerdown', () => { if (player && player.alive) player.tryPunch(); });
+punchBtn.addEventListener('pointerdown', e => { e.preventDefault(); if (player && player.alive) player.tryPunch(); });
+
+function flash(txt) { message = txt; messageT = 2.5; }
+
+function setup() {
+  agents = [];
+  const CROWD = 45;
+  for (let i = 0; i < CROWD; i++) {
+    agents.push(new Agent(rand(40, W-40), rand(40, H-40), false));
+  }
+  // 3 vrais joueurs : 1 toi + 2 bots, placés dispersés
+  player = new Agent(W*0.5, H*0.7, true, true);
+  agents.push(player);
+  agents.push(new Agent(W*0.2, H*0.25, true));
+  agents.push(new Agent(W*0.8, H*0.3, true));
+
+  running = true;
+  message = ''; messageT = 0;
+  lastTime = performance.now();
+}
+
+function endGame(win) {
+  running = false;
+  setTimeout(() => {
+    overlay.classList.remove('hidden');
+    overlay.querySelector('h1').textContent = win ? '🏆 Victoire !' : '💀 Éliminé !';
+    overlay.querySelector('p').innerHTML = win
+      ? 'Tu as démasqué et éliminé les <span class="hl">2 autres vrais joueurs</span>. Tu es le dernier debout !'
+      : 'Un autre vrai joueur t\'a repéré dans la foule et t\'a mis K.O.';
+    startBtn.textContent = 'REJOUER';
+  }, 900);
+}
+
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+
+  // fond
+  ctx.fillStyle = '#23283a';
+  ctx.fillRect(0, 0, W, H);
+  // damier sol
+  const t = 48 * DPR();
+  ctx.fillStyle = 'rgba(255,255,255,.018)';
+  for (let y = 0; y < H; y += t)
+    for (let x = (Math.floor(y/t)%2)*t; x < W; x += t*2)
+      ctx.fillRect(x, y, t, t);
+
+  if (running) {
+    for (const a of agents) a.update(dt);
+  }
+  // dessiner triés par Y (profondeur)
+  [...agents].sort((a,b)=>a.y-b.y).forEach(a => a.draw());
+
+  // HUD
+  if (running) {
+    const left = agents.filter(a => a.isHunter && a.alive && a !== player).length;
+    const cd = player.alive ? Math.max(0, player.punchT) : 0;
+    hud.innerHTML =
+      `Vrais joueurs restants : <b>${left}</b><br>` +
+      `<span class="crowd">PNJ dans la foule : ${agents.filter(a=>!a.isHunter && a.alive).length}</span><br>` +
+      (cd > 0 ? `<span class="crowd">Coup de poing : ${(cd/1000).toFixed(1)}s</span>` : `Coup de poing : prêt`);
+  }
+
+  // message flash
+  if (messageT > 0) {
+    messageT -= dt;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, messageT);
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = `${22*DPR()}px Segoe UI, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(message, W/2, 60*DPR());
+    ctx.restore();
+  }
+
+  requestAnimationFrame(loop);
+}
+
+startBtn.addEventListener('click', () => {
+  overlay.classList.add('hidden');
+  setup();
+});
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

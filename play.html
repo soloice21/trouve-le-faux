@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trouve le Faux — Multi</title>
+<style>
+  :root { --gold:#ffd23f; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; background:#0e1018; font-family:'Segoe UI',system-ui,sans-serif; }
+  #game { display:block; cursor:crosshair; }
+  .ui { position:fixed; color:#fff; text-shadow:0 2px 6px rgba(0,0,0,.6); pointer-events:none; }
+  #hud { top:14px; left:16px; font-size:14px; line-height:1.7; }
+  #hud b { color:var(--gold); }
+  #timer { top:12px; left:50%; transform:translateX(-50%); font-size:30px; font-weight:800;
+           letter-spacing:1px; font-variant-numeric:tabular-nums; }
+  #timer.low { color:#ff6b6b; }
+  #status { top:16px; right:120px; font-size:13px; text-align:right; color:#c8ccdc; }
+  #banner { top:48%; left:0; right:0; transform:translateY(-50%); text-align:center;
+            font-size:clamp(22px,5vw,44px); font-weight:800; color:var(--gold); }
+  #stunInd { bottom:140px; left:50%; transform:translateX(-50%); font-size:18px; font-weight:700;
+             color:#ff9d6b; }
+
+  #lobbyBtn { position:fixed; top:14px; right:16px; z-index:5; pointer-events:auto;
+    padding:9px 16px; font-size:13px; font-weight:700; border:none; border-radius:10px; cursor:pointer;
+    color:#fff; background:rgba(40,46,68,.85); border:1px solid #4a5172; }
+  #lobbyBtn:hover { background:rgba(60,68,96,.95); }
+
+  #punchBtn { position:fixed; bottom:24px; right:24px; width:96px; height:96px; border-radius:50%;
+    background:radial-gradient(circle at 30% 30%,#ffd27b,#d89a32); border:3px solid #fff; color:#3a2a00;
+    font-size:14px; font-weight:800; box-shadow:0 8px 20px rgba(0,0,0,.5); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; user-select:none; }
+  #punchBtn:active { transform:scale(.92); }
+  #punchBtn:disabled { filter:grayscale(.8) brightness(.6); cursor:default; }
+
+  /* ---- Menu / Lobby ---- */
+  #login { position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(1200px 700px at 50% -10%, #1b2036, #0c0e16); color:#fff; z-index:10; padding:20px; }
+  .card { width:min(560px,94vw); background:rgba(24,28,44,.92); border:1px solid #2c3350;
+    border-radius:22px; padding:34px 30px; text-align:center; box-shadow:0 30px 80px rgba(0,0,0,.55); }
+  .card .logo { font-size:54px; line-height:1; }
+  .card h1 { font-size:clamp(28px,6vw,44px); margin:6px 0 4px; letter-spacing:.5px;
+    background:linear-gradient(180deg,#fff,#b9c0d8); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .card .sub { color:#9aa0bc; margin-bottom:20px; font-size:14px; }
+  .rules { text-align:left; background:rgba(13,16,28,.6); border:1px solid #262c44; border-radius:14px;
+    padding:14px 16px; margin:0 auto 20px; font-size:13.5px; line-height:1.85; color:#c8ccdc; }
+  .rules b { color:var(--gold); }
+  .rules .em { color:#ff9d6b; font-weight:700; }
+  #name { padding:13px 16px; font-size:17px; border-radius:12px; width:280px; max-width:80%;
+    border:2px solid #3c456e; background:#1a1f33; color:#fff; text-align:center; }
+  #name:focus { outline:none; border-color:var(--gold); }
+  #go { display:block; margin:16px auto 0; padding:14px 46px; font-size:18px; font-weight:800; border:none;
+    border-radius:14px; cursor:pointer; color:#3a2a00; background:linear-gradient(135deg,#ffe08a,#e0a83a);
+    box-shadow:0 10px 26px rgba(224,168,58,.35); transition:transform .08s; }
+  #go:hover { transform:translateY(-1px); } #go:active { transform:scale(.96); }
+  #editBtn, #edit3dBtn { display:block; margin:10px auto 0; padding:11px 30px; font-size:15px; font-weight:700; cursor:pointer;
+    border-radius:12px; color:#dfe3f2; background:#222a40; border:1px solid #3c456e; transition:transform .08s, background .15s; }
+  #editBtn:hover, #edit3dBtn:hover { background:#2c365a; transform:translateY(-1px); } #editBtn:active, #edit3dBtn:active { transform:scale(.96); }
+  .modes { display:flex; gap:14px; margin:6px 0 4px; flex-wrap:wrap; }
+  .mode { flex:1 1 200px; text-align:left; cursor:pointer; padding:18px; border-radius:16px;
+    background:#1a2034; border:1px solid #344; border:1px solid #34406a; color:#fff; transition:transform .1s, border-color .15s, background .15s; }
+  .mode:hover { transform:translateY(-2px); border-color:var(--gold); background:#202744; }
+  .mode:active { transform:scale(.98); }
+  .mode.murder { background:#2a1622; border-color:#5a2330; }
+  .mode.murder:hover { border-color:#ff8a8a; background:#371a28; }
+  .mode .mi { font-size:38px; line-height:1; }
+  .mode .mt { font-size:19px; font-weight:800; margin:8px 0 6px; }
+  .mode .mt .badge { font-size:11px; font-weight:800; padding:2px 7px; border-radius:6px; background:rgba(255,255,255,.14); vertical-align:middle; margin-left:4px; }
+  .mode .md { font-size:12.5px; line-height:1.6; color:#aab0c8; }
+  #backModes { display:block; margin:14px auto 0; padding:8px 18px; font-size:13px; font-weight:700; cursor:pointer;
+    border-radius:10px; color:#c8ccdc; background:transparent; border:1px solid #3c456e; }
+  #backModes:hover { background:#222a40; }
+  .keys { font-size:12.5px; color:#7b8198; margin-top:16px; }
+  #testLabel { display:inline-flex; align-items:center; gap:8px; margin-top:14px; font-size:13.5px;
+    color:#c8ccdc; cursor:pointer; user-select:none; }
+  #testLabel input { width:17px; height:17px; accent-color:var(--gold); cursor:pointer; }
+  .err { color:#ff6b6b; font-weight:700; min-height:20px; margin-top:12px; font-size:14px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud" class="ui"></div>
+<div id="timer" class="ui"></div>
+<div id="status" class="ui"></div>
+<div id="banner" class="ui"></div>
+<div id="stunInd" class="ui"></div>
+<button id="lobbyBtn" class="hidden">← Lobby</button>
+<button id="punchBtn" class="hidden">COUP DE<br>POING</button>
+
+<div id="login">
+  <div class="card">
+    <div class="logo">🎮</div>
+    <h1>Trouve le Faux</h1>
+
+    <!-- Étape 1 : choix du mode -->
+    <div id="modeSelect">
+      <div class="sub">Choisis ton mode de jeu</div>
+      <div class="modes">
+        <button class="mode" id="mode2d">
+          <div class="mi">🕵️</div>
+          <div class="mt">Trouve le Faux <span class="badge">2D</span></div>
+          <div class="md">Vue de dessus. Repère les vrais joueurs cachés dans la foule et démasque-les d'un coup de poing.</div>
+        </button>
+        <button class="mode murder" id="mode3d">
+          <div class="mi">🔪</div>
+          <div class="mt">Murder <span class="badge">3D</span></div>
+          <div class="md">Vue 1ʳᵉ personne. Tueurs, shérif et innocents : survis ou élimine tout le monde.</div>
+        </button>
+      </div>
+      <button id="editBtn" onclick="location.href='editor.html'">🎨 ÉDITEUR DE MAPS (2D)</button>
+      <button id="edit3dBtn" onclick="location.href='editor3d.html'">🧱 ÉDITEUR 3D (MURDER)</button>
+    </div>
+
+    <!-- Étape 2 : lobby du mode 2D -->
+    <div id="play2d" class="hidden">
+      <div class="sub">🕵️ Mode 2D — Trouve le Faux</div>
+      <div class="rules">
+        🎯 <b>But :</b> <b>trouver les autres vrais joueurs</b> noyés dans la foule (pas un battle royale).<br>
+        👥 <b>20 PNJ</b> et jusqu'à <b>4 vrais joueurs</b> ont <b>exactement la même apparence</b>.<br>
+        👊 Repère-les à leur <b>façon de bouger</b> et frappe <b>vers ton curseur</b> (les PNJ aussi tombent).<br>
+        🧊 Après chaque coup, <span class="em">immobile 1&nbsp;seconde</span>. ⏳ Décompte de 5&nbsp;s puis manche de 5&nbsp;min.<br>
+        🏆 Le <b>dernier vrai joueur en vie</b> gagne (les PNJ ne comptent pas). ⭐ Le repère doré, c'est <b>toi</b>.
+      </div>
+      <input id="name" maxlength="16" placeholder="Ton pseudo" />
+      <label id="testLabel"><input type="checkbox" id="testChk" /> 🧪 Mode test — jouer seul (ajoute 3 bots)</label>
+      <button id="go">REJOINDRE LA PARTIE</button>
+      <div class="err" id="err"></div>
+      <div class="keys">Déplacement <b>ZQSD / flèches</b> &nbsp;·&nbsp; Frapper <b>Espace / clic</b></div>
+      <button id="backModes">← Choix du mode</button>
+    </div>
+  </div>
+</div>
+
+<script src="decor.js"></script>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+const statusEl = document.getElementById('status');
+const banner = document.getElementById('banner');
+const timerEl = document.getElementById('timer');
+const stunInd = document.getElementById('stunInd');
+const login = document.getElementById('login');
+const errEl = document.getElementById('err');
+const lobbyBtn = document.getElementById('lobbyBtn');
+const punchBtn = document.getElementById('punchBtn');
+
+const SKIN = '#8b91a6', SKIN_HEAD = '#f1d2b3';
+const SHIRT = '#8b91a6', SHIRT_LIGHT = '#a0a6ba', SHIRT_DARK = '#70768c';
+const HAIR = '#3a3844', SHOE = '#474b5b';
+let DPR = Math.min(2, window.devicePixelRatio || 1);
+let W, H;
+function resize() {
+  W = canvas.width = innerWidth*DPR; H = canvas.height = innerHeight*DPR;
+  canvas.style.width = innerWidth+'px'; canvas.style.height = innerHeight+'px';
+}
+addEventListener('resize', resize); resize();
+
+let ws, myId = null, leaving = false;
+let map = { world:{w:1500,h:950}, decor:[], floor:'#2a2f44', name:'' };
+let state = null;
+let view = { players:new Map(), npcs:new Map() };
+let amDead = false, myStun = false;
+
+function connect(name, test) {
+  leaving = false; errEl.textContent = '';
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}`);
+  ws.onopen = () => ws.send(JSON.stringify({ t:'join', name, test:!!test }));
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.t === 'welcome') { myId = m.id; enterGame(); }
+    else if (m.t === 'full') { errEl.textContent = `Salle pleine (${m.max}/${m.max} joueurs). Réessaie plus tard.`; }
+    else if (m.t === 'map') { map = m; view.npcs = new Map(); }
+    else if (m.t === 'state') { state = m; ingest(m); }
+    else if (m.t === 'dead') amDead = true;
+  };
+  ws.onclose = () => { if (!leaving) { errEl.textContent = 'Connexion au serveur perdue.'; toLobby(true); } };
+  ws.onerror = () => {};
+}
+
+function enterGame() {
+  login.classList.add('hidden');
+  lobbyBtn.classList.remove('hidden');
+  punchBtn.classList.remove('hidden');
+}
+function toLobby(silent) {
+  leaving = true;
+  if (ws) { try { ws.close(); } catch{} ws = null; }
+  state = null; myId = null; amDead = false;
+  view.players.clear(); view.npcs = new Map(); poofs = [];
+  login.classList.remove('hidden');
+  lobbyBtn.classList.add('hidden');
+  punchBtn.classList.add('hidden');
+  banner.textContent = ''; timerEl.textContent = ''; hud.textContent = ''; stunInd.textContent='';
+  if (!silent) errEl.textContent = '';
+}
+lobbyBtn.addEventListener('click', () => toLobby(false));
+
+function ingest(m) {
+  // PNJ par id (un PNJ tué disparaît proprement, avec un petit effet)
+  const seenN = new Set();
+  for (const n of m.npcs) {
+    seenN.add(n.id);
+    let v = view.npcs.get(n.id);
+    if (!v) { v = { x:n.x, y:n.y }; view.npcs.set(n.id, v); }
+    if (!v.dead && n.dead) poof(v);   // impact au moment de la mort (le corps reste)
+    v.tx=n.x; v.ty=n.y; v.a=n.a; v.id=n.id; v.dead=n.dead;
+  }
+  for (const id of [...view.npcs.keys()]) if (!seenN.has(id)) view.npcs.delete(id);
+  const seen = new Set();
+  for (const p of m.players) {
+    seen.add(p.id);
+    let v = view.players.get(p.id);
+    if (!v) { v = { x:p.x, y:p.y }; view.players.set(p.id, v); }
+    if (v.alive && !p.alive) poof(v);   // joueur éliminé
+    Object.assign(v, { tx:p.x, ty:p.y, a:p.a, alive:p.alive, punch:p.punch, stun:p.stun, name:p.name, kills:p.kills, id:p.id });
+  }
+  for (const id of [...view.players.keys()]) if (!seen.has(id)) view.players.delete(id);
+  const me = m.players.find(p=>p.id===myId);
+  if (m.phase === 'playing') amDead = !(me && me.alive);
+  else if (m.phase === 'starting') amDead = false;
+  myStun = !!(me && me.stun && me.alive);
+}
+let poofs = [];
+function poof(v){ if (v) poofs.push({ x:v.x, y:v.y, t:1 }); }
+
+// ---- Entrées ----
+const keys = {};
+let mouseCX = innerWidth*DPR/2, mouseCY = innerHeight*DPR/2, aim = 0;
+addEventListener('keydown', e => { if(login.classList.contains('hidden')){ keys[e.key.toLowerCase()]=true; if(e.key===' '){e.preventDefault();punch();} } });
+addEventListener('keyup', e => keys[e.key.toLowerCase()]=false);
+addEventListener('pointermove', e => { const r=canvas.getBoundingClientRect(); mouseCX=(e.clientX-r.left)*DPR; mouseCY=(e.clientY-r.top)*DPR; });
+canvas.addEventListener('pointerdown', e => { punch(); });
+punchBtn.addEventListener('pointerdown', e => { e.preventDefault(); punch(); });
+function computeAim(){ const me=view.players.get(myId); if(me){ const a=Math.atan2(mouseCY-Y(me.y), mouseCX-X(me.x)); if(!isNaN(a)) aim=a; } }
+function punch(){ computeAim(); if (ws&&ws.readyState===1) ws.send(JSON.stringify({t:'punch', a:aim})); }
+
+let lastSent=0, lastDx=0, lastDy=0, lastAim=0;
+function sendInput() {
+  if (!ws || ws.readyState!==1) return;
+  let dx=0,dy=0;
+  if (keys['arrowup']||keys['w']||keys['z']) dy--;
+  if (keys['arrowdown']||keys['s']) dy++;
+  if (keys['arrowleft']||keys['a']||keys['q']) dx--;
+  if (keys['arrowright']||keys['d']) dx++;
+  computeAim();
+  const now = performance.now();
+  if (dx!==lastDx||dy!==lastDy||Math.abs(aim-lastAim)>0.06||now-lastSent>100) {
+    ws.send(JSON.stringify({t:'input',dx,dy,a:aim})); lastDx=dx; lastDy=dy; lastAim=aim; lastSent=now;
+  }
+}
+
+// ---- Caméra ----
+let cam = { s:1, ox:0, oy:0 };
+const X = wx => cam.ox + wx*cam.s, Y = wy => cam.oy + wy*cam.s;
+
+// FP, decorSize et paintDecor sont définis dans decor.js (chargé avant ce script).
+function drawDecor(d) { paintDecor(ctx, d, cam.s, X(d.x), Y(d.y)); }
+
+function drawCorpse(x, y, a) {
+  const r = 16*cam.s;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+  ctx.fillStyle='rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(0, 0, r*1.5, r*0.7, 0, 0, 7); ctx.fill();
+  // bras et jambes écartés
+  ctx.strokeStyle='#6f7589'; ctx.lineWidth=r*0.3; ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(-r*0.2,0); ctx.lineTo(-r*0.9, -r*0.7);
+  ctx.moveTo(-r*0.2,0); ctx.lineTo(-r*0.9,  r*0.7);
+  ctx.moveTo(r*0.4,0);  ctx.lineTo(r*0.2, -r*0.8);
+  ctx.moveTo(r*0.4,0);  ctx.lineTo(r*0.2,  r*0.8);
+  ctx.stroke();
+  // corps couché
+  ctx.fillStyle='#6f7589'; ctx.beginPath(); ctx.roundRect(-r*0.6, -r*0.55, r*1.4, r*1.1, r*0.45); ctx.fill();
+  // tête
+  ctx.fillStyle='#d8c0a4'; ctx.beginPath(); ctx.arc(r*1.05, 0, r*0.5, 0, 7); ctx.fill();
+  // yeux en croix (mort)
+  ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.lineWidth=Math.max(1,r*0.09);
+  const ex=r*1.05;
+  ctx.beginPath(); ctx.moveTo(ex-r*0.12,-r*0.12); ctx.lineTo(ex+r*0.04,-r*0.02);
+  ctx.moveTo(ex+r*0.04,-r*0.12); ctx.lineTo(ex-r*0.12,-r*0.02); ctx.stroke();
+  ctx.restore();
+}
+function drawAgent(x, y, angle, punching, stunned, legPhase, isMe) {
+  const r = 16*cam.s;
+  const bobY = stunned ? 0 : Math.sin(legPhase)*2*cam.s;
+  const fx = Math.cos(angle), fy = Math.sin(angle); // direction (utilisée seulement pour le coup de poing)
+  const hy = -r*0.95 + bobY; // centre tête
+  ctx.save(); ctx.translate(x,y); ctx.lineCap='round';
+
+  // ombre portée
+  ctx.beginPath(); ctx.ellipse(0, r*0.98, r*0.98, r*0.36, 0, 0, 7); ctx.fillStyle='rgba(0,0,0,.30)'; ctx.fill();
+
+  // jambes + chaussures
+  const legSwing = stunned ? 0 : Math.sin(legPhase)*r*0.4;
+  ctx.strokeStyle=SHIRT_DARK; ctx.lineWidth=r*0.3;
+  ctx.beginPath();
+  ctx.moveTo(-r*0.3, r*0.45+bobY); ctx.lineTo(-r*0.3+legSwing, r*1.08+bobY);
+  ctx.moveTo(r*0.3, r*0.45+bobY); ctx.lineTo(r*0.3-legSwing, r*1.08+bobY); ctx.stroke();
+  ctx.fillStyle=SHOE;
+  ctx.beginPath(); ctx.arc(-r*0.3+legSwing, r*1.12+bobY, r*0.19, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(r*0.3-legSwing, r*1.12+bobY, r*0.19, 0, 7); ctx.fill();
+
+  // torse (dégradé) + col
+  const g = ctx.createLinearGradient(0, -r*0.6+bobY, 0, r*0.85+bobY);
+  g.addColorStop(0, SHIRT_LIGHT); g.addColorStop(1, SHIRT_DARK);
+  ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(-r*0.72, -r*0.62+bobY, r*1.44, r*1.42, r*0.5); ctx.fill();
+  ctx.fillStyle=SHIRT_DARK; ctx.beginPath(); ctx.roundRect(-r*0.28, -r*0.62+bobY, r*0.56, r*0.34, r*0.18); ctx.fill();
+
+  // bras + poing : visibles UNIQUEMENT pendant le coup de poing
+  if (punching) {
+    const reach = r*2.2;
+    const ax=fx*reach, ay=fy*reach+bobY;
+    ctx.strokeStyle=SHIRT; ctx.lineWidth=r*0.34;
+    ctx.beginPath(); ctx.moveTo(0,bobY); ctx.lineTo(ax,ay); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ax,ay,r*0.3,0,7); ctx.fillStyle='#fff'; ctx.fill();
+  }
+
+  // tête neutre et fixe (ne tourne plus vers le curseur)
+  ctx.beginPath(); ctx.arc(0, hy, r*0.56, 0, 7); ctx.fillStyle=SKIN_HEAD; ctx.fill();
+  ctx.fillStyle=HAIR; ctx.beginPath(); ctx.arc(0, hy - r*0.14, r*0.52, 0, 7); ctx.fill();
+  ctx.fillStyle=SKIN_HEAD; ctx.beginPath(); ctx.arc(0, hy + r*0.16, r*0.44, 0, 7); ctx.fill();
+  ctx.fillStyle='#2a2433';
+  ctx.beginPath(); ctx.arc(-r*0.17, hy + r*0.18, r*0.07, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(r*0.17, hy + r*0.18, r*0.07, 0, 7); ctx.fill();
+  ctx.restore();
+  if (isMe) {
+    ctx.save(); ctx.translate(x, y-r*2.5);
+    const f = 1 + Math.sin(legPhase*0.5)*0.12; ctx.scale(f,f);
+    ctx.beginPath(); ctx.moveTo(0,6*cam.s); ctx.lineTo(-7*cam.s,-6*cam.s); ctx.lineTo(7*cam.s,-6*cam.s); ctx.closePath();
+    ctx.fillStyle='#ffd23f'; ctx.fill(); ctx.restore();
+  }
+}
+
+let legClock=0, last=performance.now();
+function fmtTime(s){ const m=Math.floor(s/60), ss=s%60; return m+':'+String(ss).padStart(2,'0'); }
+
+function frame(dt) {
+  const world = map.world;
+  cam.s = Math.min(W/world.w, H/world.h);
+  cam.ox = (W - world.w*cam.s)/2; cam.oy = (H - world.h*cam.s)/2;
+
+  ctx.fillStyle='#0e1018'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=map.floor||'#262b3c'; ctx.fillRect(cam.ox, cam.oy, world.w*cam.s, world.h*cam.s);
+  const t=56*cam.s;
+  ctx.fillStyle='rgba(255,255,255,.02)';
+  for (let y=0; y<world.h*cam.s; y+=t)
+    for (let x=(Math.floor(y/t)%2)*t; x<world.w*cam.s; x+=t*2)
+      ctx.fillRect(cam.ox+x, cam.oy+y, t, t);
+
+  for (const d of map.decor) drawDecor(d);
+
+  // murs : uniquement la bordure de la salle
+  ctx.strokeStyle='#4a5172'; ctx.lineWidth=12*cam.s;
+  ctx.strokeRect(cam.ox+6*cam.s, cam.oy+6*cam.s, world.w*cam.s-12*cam.s, world.h*cam.s-12*cam.s);
+
+  legClock += dt;
+  const k = 1 - Math.pow(0.0001, dt);
+  for (const n of view.npcs.values()){ n.x+=(n.tx-n.x)*k; n.y+=(n.ty-n.y)*k; }
+  for (const v of view.players.values()){ v.x+=(v.tx-v.x)*k; v.y+=(v.ty-v.y)*k; }
+
+  // cadavres au sol (couche basse)
+  for (const n of view.npcs.values()) if (n.dead) drawCorpse(X(n.x), Y(n.y), n.a);
+
+  const list = [];
+  for (const n of view.npcs.values()) if (!n.dead)
+    list.push({ y:n.y, fn:()=>drawAgent(X(n.x),Y(n.y),n.a,false,false, legClock*9+n.id*1.7, false) });
+  for (const v of view.players.values()) if (v.alive)
+    list.push({ y:v.y, fn:()=>drawAgent(X(v.x),Y(v.y), v.id===myId?aim:v.a, v.punch,v.stun, legClock*9+v.id*2.3, v.id===myId) });
+  list.sort((a,b)=>a.y-b.y).forEach(d=>d.fn());
+
+  // effets de mort (poof)
+  for (let i=poofs.length-1;i>=0;i--){ const pf=poofs[i]; pf.t-=dt*2.2;
+    if (pf.t<=0){ poofs.splice(i,1); continue; }
+    ctx.globalAlpha=pf.t*0.6; ctx.strokeStyle='#fff'; ctx.lineWidth=3*cam.s;
+    ctx.beginPath(); ctx.arc(X(pf.x),Y(pf.y),(1-pf.t)*34*cam.s+6*cam.s,0,7); ctx.stroke(); ctx.globalAlpha=1;
+  }
+
+  // HUD
+  if (state) {
+    const me = state.players.find(p=>p.id===myId);
+    const aliveH = state.players.filter(p=>p.alive).length;
+    hud.innerHTML =
+      (state.test ? `<span style="color:#7be0a0">🧪 MODE TEST</span><br>` : '') +
+      `Map : <b>${state.mapName||''}</b><br>` +
+      `Vrais joueurs en vie : <b>${aliveH}</b> / ${state.count} (max ${state.max})` +
+      (me ? `<br>🔍 Joueurs trouvés : <b>${me.kills}</b>` : '');
+
+    if (state.phase==='playing') { timerEl.textContent = fmtTime(state.timeLeft); timerEl.classList.toggle('low', state.timeLeft<=30); }
+    else timerEl.textContent = '';
+
+    if (state.phase==='waiting') banner.textContent = `En attente de joueurs… (${state.count}/${state.min})`;
+    else if (state.phase==='starting')
+      banner.innerHTML = `<span style="font-size:14px;color:#c8ccdc;font-weight:600">🔍 Repère les autres vrais joueurs…</span><br>` +
+        `<span style="font-size:clamp(54px,12vw,120px);color:#ffd23f">${state.startIn}</span>`;
+    else if (state.phase==='roundover')
+      banner.innerHTML = (state.winner?`🏆 ${state.winner} gagne — dernier joueur en vie !`:'⏱️ Manche terminée — égalité') +
+        `<br><span style="font-size:18px;color:#c8ccdc">Nouvelle manche dans ${state.resetIn}s</span>`;
+    else if (amDead) banner.innerHTML = `🔍 Tu as été démasqué !<br><span style="font-size:18px;color:#c8ccdc">retour à la prochaine manche</span>`;
+    else banner.textContent='';
+
+    stunInd.textContent = (myStun && !amDead && state.phase==='playing') ? '🧊 Immobilisé…' : '';
+    punchBtn.disabled = myStun || amDead || state.phase!=='playing';
+    statusEl.textContent = state.phase==='playing' ? 'En jeu' : '';
+  }
+}
+
+function loop(now){ const dt=Math.min(0.05,(now-last)/1000); last=now; if(!login.classList.contains('hidden')){last=now;} else { sendInput(); } frame(dt); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+
+const nameInput = document.getElementById('name');
+nameInput.value='Joueur';
+function start(){ const n=nameInput.value.trim()||'Joueur'; connect(n, document.getElementById('testChk').checked); }
+document.getElementById('go').addEventListener('click', start);
+nameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') start(); });
+
+// ---- sélection du mode ----
+const $m=id=>document.getElementById(id);
+$m('mode2d').addEventListener('click',()=>{ $m('modeSelect').classList.add('hidden'); $m('play2d').classList.remove('hidden'); nameInput.focus(); });
+$m('mode3d').addEventListener('click',()=>{ location.href='murder.html'; });
+$m('backModes').addEventListener('click',()=>{ $m('play2d').classList.add('hidden'); $m('modeSelect').classList.remove('hidden'); });
+</script>
+</body>
+</html>
