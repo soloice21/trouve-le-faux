@@ -6,8 +6,23 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import * as db from './db.js';
+import * as auth from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ---- Utilitaires HTTP pour l'API comptes ----
+const sendJson = (res, code, obj) => {
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(obj));
+};
+const readJsonBody = (req, limit = 1e5) => new Promise((resolve, reject) => {
+  let body = '';
+  req.on('data', c => { body += c; if (body.length > limit) { req.destroy(); reject(new Error('trop volumineux')); } });
+  req.on('end', () => { try { resolve(body ? JSON.parse(body) : {}); } catch { reject(new Error('JSON invalide')); } });
+  req.on('error', reject);
+});
+const validName = (s) => typeof s === 'string' && /^[\p{L}\p{N}_.-]{3,16}$/u.test(s);
 const PORT = process.env.PORT || 3000;
 const MAPS_FILE = path.join(__dirname, 'maps.json');
 
@@ -314,14 +329,90 @@ function broadcastMap() { const m = JSON.stringify(mapPayload()); for (const p o
 function send(ws, obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
 
 // ---- HTTP (statique + API maps) ----
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
+  // ============================================================
+  //  API COMPTES (inscription, connexion, sessions, administration)
+  // ============================================================
+  const urlPath = req.url.split('?')[0];
+  try {
+    // Qui suis-je ? (jeton de session ou IP owner)
+    if (req.method === 'GET' && urlPath === '/api/me') {
+      const u = await auth.resolveUser(req);
+      return sendJson(res, 200, { user: auth.publicUser(u), dbEnabled: db.dbEnabled() });
+    }
+    // Inscription d'un nouveau compte (rôle "player")
+    if (req.method === 'POST' && urlPath === '/api/register') {
+      if (!db.dbEnabled()) return sendJson(res, 503, { ok: false, error: 'Base de données indisponible.' });
+      const { username, password } = await readJsonBody(req);
+      if (!validName(username)) return sendJson(res, 400, { ok: false, error: 'Pseudo invalide (3-16 caractères : lettres, chiffres, _ . -).' });
+      if (typeof password !== 'string' || password.length < 6) return sendJson(res, 400, { ok: false, error: 'Mot de passe : 6 caractères minimum.' });
+      if (await db.getUserByName(username)) return sendJson(res, 409, { ok: false, error: 'Ce pseudo est déjà pris.' });
+      const user = await db.createUser({ username, passwordHash: auth.hashPassword(password), role: 'player', ip: auth.clientIp(req) });
+      const token = auth.newToken();
+      await db.createSession(token, user.id, auth.sessionExpiry());
+      return sendJson(res, 200, { ok: true, token, user: auth.publicUser(user) });
+    }
+    // Connexion
+    if (req.method === 'POST' && urlPath === '/api/login') {
+      if (!db.dbEnabled()) return sendJson(res, 503, { ok: false, error: 'Base de données indisponible.' });
+      const { username, password } = await readJsonBody(req);
+      const user = await db.getUserByName(username || '');
+      if (!user || !auth.verifyPassword(password || '', user.password_hash)) return sendJson(res, 401, { ok: false, error: 'Pseudo ou mot de passe incorrect.' });
+      if (user.banned) return sendJson(res, 403, { ok: false, error: 'Ce compte est banni.' });
+      const token = auth.newToken();
+      await db.createSession(token, user.id, auth.sessionExpiry());
+      await db.touchLogin(user.id, auth.clientIp(req));
+      return sendJson(res, 200, { ok: true, token, user: auth.publicUser(user) });
+    }
+    // Déconnexion
+    if (req.method === 'POST' && urlPath === '/api/logout') {
+      await db.deleteSession(auth.bearerToken(req));
+      return sendJson(res, 200, { ok: true });
+    }
+    // Admin : liste des utilisateurs (permission manage_users)
+    if (req.method === 'GET' && urlPath === '/api/admin/users') {
+      const me = await auth.resolveUser(req);
+      if (!auth.hasPerm(me, 'manage_users')) return sendJson(res, 403, { ok: false, error: 'Accès refusé.' });
+      return sendJson(res, 200, { ok: true, users: await db.listUsers(), roles: auth.ROLES });
+    }
+    // Admin : changer le rôle d'un utilisateur
+    if (req.method === 'POST' && urlPath === '/api/admin/setrole') {
+      const me = await auth.resolveUser(req);
+      if (!auth.hasPerm(me, 'manage_users')) return sendJson(res, 403, { ok: false, error: 'Accès refusé.' });
+      const { userId, role } = await readJsonBody(req);
+      if (!auth.ROLES.includes(role)) return sendJson(res, 400, { ok: false, error: 'Rôle inconnu.' });
+      const target = await db.getUserById(Number(userId));
+      if (!target) return sendJson(res, 404, { ok: false, error: 'Utilisateur introuvable.' });
+      // Seul un owner peut créer/retirer un owner.
+      if ((role === 'owner' || target.role === 'owner') && me.role !== 'owner')
+        return sendJson(res, 403, { ok: false, error: 'Seul un owner peut gérer le rôle owner.' });
+      const updated = await db.setRole(target.id, role, role === 'owner' ? ['*'] : []);
+      return sendJson(res, 200, { ok: true, user: auth.publicUser(updated) });
+    }
+    // Admin : bannir / débannir
+    if (req.method === 'POST' && urlPath === '/api/admin/ban') {
+      const me = await auth.resolveUser(req);
+      if (!auth.hasPerm(me, 'ban')) return sendJson(res, 403, { ok: false, error: 'Accès refusé.' });
+      const { userId, banned } = await readJsonBody(req);
+      const target = await db.getUserById(Number(userId));
+      if (!target) return sendJson(res, 404, { ok: false, error: 'Utilisateur introuvable.' });
+      if (target.role === 'owner') return sendJson(res, 403, { ok: false, error: 'Impossible de bannir un owner.' });
+      const updated = await db.setBanned(target.id, banned);
+      return sendJson(res, 200, { ok: true, user: auth.publicUser(updated) });
+    }
+  } catch (e) {
+    return sendJson(res, 400, { ok: false, error: String(e.message || e) });
+  }
+
   // API : récupérer les maps
   if (req.method === 'GET' && req.url === '/api/maps') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     return res.end(JSON.stringify(MAPS));
   }
-  // API : enregistrer les maps (depuis l'éditeur)
+  // API : enregistrer les maps (depuis l'éditeur) — réservé aux éditeurs de maps
   if (req.method === 'POST' && req.url === '/api/maps') {
+    const me = await auth.resolveUser(req);
+    if (!auth.hasPerm(me, 'edit_maps')) return sendJson(res, 403, { ok: false, error: 'Connexion admin requise pour sauvegarder.' });
     let body = '';
     req.on('data', c => { body += c; if (body.length > 1e6) req.destroy(); });
     req.on('end', () => {
@@ -345,6 +436,8 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify(getMurderMap()));
   }
   if (req.method === 'POST' && req.url === '/api/murdermap') {
+    const me = await auth.resolveUser(req);
+    if (!auth.hasPerm(me, 'edit_murder_map')) return sendJson(res, 403, { ok: false, error: 'Connexion admin requise pour sauvegarder.' });
     let body = '';
     req.on('data', c => { body += c; if (body.length > 4e6) req.destroy(); });
     req.on('end', () => {
@@ -634,11 +727,15 @@ function fakeLeave(p){ players.delete(p.id); if (humans().length===0){ testMode=
 const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
   let P=null, mode=null;
-  ws.on('message', (raw) => {
+  ws.on('message', async (raw) => {
     let m; try { m = JSON.parse(raw); } catch { return; }
     if (m.t==='join' && !P){
+      // Identifie le joueur via son jeton de session (anti-usurpation de pseudo).
+      const acc = await auth.resolveToken(m.token);
+      if (acc) { m._account = auth.publicUser(acc); m.name = acc.username; }
       mode = m.mode==='murder' ? 'murder' : 'fake';
       P = mode==='murder' ? murderJoin(ws, m) : fakeJoin(ws, m);
+      if (P && m._account) P.account = m._account;
       return;
     }
     if (!P) return;
@@ -648,11 +745,31 @@ wss.on('connection', (ws) => {
   ws.on('error', () => {});
 });
 
+// Initialise la base et crée/maj le compte owner (depuis les variables d'environnement).
+async function initAccounts() {
+  if (!db.dbEnabled()) return;
+  try {
+    await db.initSchema();
+    const oUser = (process.env.OWNER_USERNAME || '').trim();
+    const oPass = process.env.OWNER_PASSWORD || '';
+    if (oUser && oPass) {
+      await db.upsertOwner({ username: oUser, passwordHash: auth.hashPassword(oPass), ip: (process.env.OWNER_IP || '').trim() || null });
+      console.log(`  ✓ Compte owner prêt : « ${oUser} »` + (process.env.OWNER_IP ? ` (IP bonus : ${process.env.OWNER_IP})` : ''));
+    } else {
+      console.warn('  ⚠️  OWNER_USERNAME / OWNER_PASSWORD non définis → pas de compte owner créé.');
+    }
+  } catch (e) {
+    console.error('  ⚠️  Échec init comptes :', e.message);
+  }
+}
+
 setInterval(tick, TICK);
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`\n  🕵️  Trouve le Faux — serveur lancé`);
   console.log(`  ➜  Jeu :      http://localhost:${PORT}`);
   console.log(`  ➜  Éditeur :  http://localhost:${PORT}/editor.html`);
   console.log(`  ➜  Mode 3D :  http://localhost:${PORT}/murder.html`);
+  console.log(`  ➜  Compte :   http://localhost:${PORT}/compte.html`);
   console.log(`  ➜  Réseau :   http://<ton-IP-locale>:${PORT}\n`);
+  await initAccounts();
 });

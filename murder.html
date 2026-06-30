@@ -268,7 +268,7 @@ function makeAvatar(){
 function connect(name,test){
   const proto=location.protocol==='https:'?'wss':'ws';
   ws=new WebSocket(`${proto}://${location.host}`);
-  ws.onopen=()=>ws.send(JSON.stringify({t:'join',mode:'murder',name,test:!!test}));
+  ws.onopen=()=>ws.send(JSON.stringify({t:'join',mode:'murder',name,test:!!test,token:localStorage.getItem('tlf_token')||undefined}));
   ws.onmessage=e=>{ const m=JSON.parse(e.data);
     if(m.t==='mwelcome') myId=m.id;
     else if(m.t==='mmap'){ world=m.world; decor=m.decor||[]; COLL=colliders();

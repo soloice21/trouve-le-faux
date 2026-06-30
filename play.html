@@ -110,6 +110,8 @@
       </div>
       <button id="editBtn" onclick="location.href='editor.html'">🎨 ÉDITEUR DE MAPS (2D)</button>
       <button id="edit3dBtn" onclick="location.href='editor3d.html'">🧱 ÉDITEUR 3D (MURDER)</button>
+      <button id="acctBtn" onclick="location.href='compte.html'">👤 MON COMPTE</button>
+      <div id="acctStatus" style="margin-top:8px;font-size:13px;color:#9d96b8;"></div>
     </div>
 
     <!-- Étape 2 : lobby du mode 2D -->
@@ -167,7 +169,7 @@ function connect(name, test) {
   leaving = false; errEl.textContent = '';
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}`);
-  ws.onopen = () => ws.send(JSON.stringify({ t:'join', name, test:!!test }));
+  ws.onopen = () => ws.send(JSON.stringify({ t:'join', name, test:!!test, token: localStorage.getItem('tlf_token') || undefined }));
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.t === 'welcome') { myId = m.id; enterGame(); }
@@ -420,6 +422,25 @@ const $m=id=>document.getElementById(id);
 $m('mode2d').addEventListener('click',()=>{ $m('modeSelect').classList.add('hidden'); $m('play2d').classList.remove('hidden'); nameInput.focus(); });
 $m('mode3d').addEventListener('click',()=>{ location.href='murder.html'; });
 $m('backModes').addEventListener('click',()=>{ $m('play2d').classList.add('hidden'); $m('modeSelect').classList.remove('hidden'); });
+
+// ---- statut du compte (affichage + pré-remplissage du pseudo) ----
+(async () => {
+  try {
+    const t = localStorage.getItem('tlf_token');
+    const h = t ? { 'Authorization':'Bearer '+t } : {};
+    const r = await fetch('/api/me', { headers:h });
+    const d = await r.json();
+    const el = document.getElementById('acctStatus');
+    if (d.user) {
+      const r = d.user.role;
+      const tag = r==='owner'?'👑 Owner':r==='admin'?'🛡️ Admin':r==='moderator'?'🔧 Modérateur':'🎮 Joueur';
+      el.innerHTML = `Connecté : <b style="color:#ece9f5">${d.user.username}</b> — ${tag}`;
+      nameInput.value = d.user.username; nameInput.readOnly = true;
+    } else {
+      el.innerHTML = 'Non connecté — <a href="compte.html" style="color:#5cffd0">se connecter</a> pour un pseudo vérifié.';
+    }
+  } catch {}
+})();
 </script>
 </body>
 </html>

@@ -277,10 +277,11 @@ $('hint').innerHTML = 'Objets <b>redimensionnables</b> : clique-glisse · <b>aut
 // ---- Sauvegarde ----
 $('save').addEventListener('click', ()=>{
   status.style.color='#9aa0bc'; status.textContent='Enregistrement…';
-  fetch('/api/maps', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(maps) })
+  const _h={'Content-Type':'application/json'}; const _t=localStorage.getItem('tlf_token'); if(_t) _h['Authorization']='Bearer '+_t;
+  fetch('/api/maps', { method:'POST', headers:_h, body:JSON.stringify(maps) })
     .then(r=>r.json()).then(d=>{
       if(d.ok){ status.style.color='#7be0a0'; status.textContent=`✓ ${d.count} map(s) enregistrée(s) ! Elles seront jouées en partie.`; }
-      else { status.style.color='#ff6b6b'; status.textContent='Erreur : '+(d.error||'inconnue'); }
+      else { status.style.color='#ff6b6b'; status.textContent='Erreur : '+(d.error||'inconnue')+' (connecte-toi en admin sur /compte.html)'; }
     }).catch(()=>{ status.style.color='#ff6b6b'; status.textContent='Erreur de connexion au serveur.'; });
 });
 </script>

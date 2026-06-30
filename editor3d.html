@@ -197,9 +197,10 @@ $('mFloor').addEventListener('input',e=>{ map.floor=e.target.value; rebuildFloor
 // ---- save / load ----
 $('save').addEventListener('click',()=>{
   $('status').style.color='#9aa0bc'; $('status').textContent='Enregistrement…';
-  fetch('/api/murdermap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(map)})
+  const _h={'Content-Type':'application/json'}; const _t=localStorage.getItem('tlf_token'); if(_t) _h['Authorization']='Bearer '+_t;
+  fetch('/api/murdermap',{method:'POST',headers:_h,body:JSON.stringify(map)})
     .then(r=>r.json()).then(d=>{ if(d.ok){ $('status').style.color='#7be0a0'; $('status').textContent=`✓ Map enregistrée (${d.decor} objets).`; }
-      else { $('status').style.color='#ff6b6b'; $('status').textContent='Erreur : '+(d.error||'?'); } })
+      else { $('status').style.color='#ff6b6b'; $('status').textContent='Erreur : '+(d.error||'?')+' (connecte-toi admin sur /compte.html)'; } })
     .catch(()=>{ $('status').style.color='#ff6b6b'; $('status').textContent='Erreur de connexion.'; });
 });
 $('hint').innerHTML='<b>Clic gauche</b> : placer / sélectionner · <b>glisser</b> un objet pour le déplacer · <b>clic droit</b> : tourner la vue · <b>molette</b> : zoom · <b>clic molette</b> : déplacer la vue · <b>R</b> pivoter · <b>Suppr</b> effacer.';

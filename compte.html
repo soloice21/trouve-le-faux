@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Compte — Trouve le Faux</title>
+<style>
+  :root { --bg:#16141f; --panel:#211d2e; --panel2:#2a2540; --line:#3a3352; --txt:#ece9f5; --muted:#9d96b8; --acc:#7c5cff; --acc2:#5cffd0; --danger:#ff5c7c; --ok:#5cff9d; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:radial-gradient(900px 600px at 70% -10%,#241f3a,#16141f); color:var(--txt); min-height:100vh; }
+  .wrap { max-width:760px; margin:0 auto; padding:26px 18px 60px; }
+  a { color:var(--acc2); }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 22px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:18px; }
+  .card h2 { margin:0 0 14px; font-size:18px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  input, select { width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--txt); font-size:15px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:160px; }
+  button { cursor:pointer; border:0; border-radius:10px; padding:11px 16px; font-size:15px; font-weight:600; color:#fff; background:var(--acc); margin-top:14px; }
+  button.ghost { background:var(--panel2); border:1px solid var(--line); color:var(--txt); }
+  button.danger { background:var(--danger); }
+  button:active { transform:translateY(1px); }
+  .msg { margin-top:12px; font-size:14px; min-height:18px; }
+  .msg.err { color:var(--danger); } .msg.ok { color:var(--ok); }
+  .me { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .badge { font-size:12px; font-weight:700; padding:3px 10px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); }
+  .badge.owner { background:#3a2a14; border-color:#c79a3a; color:#ffce6b; }
+  .badge.admin { background:#2a143a; border-color:#a85cff; color:#d7a6ff; }
+  .badge.moderator { background:#14302a; border-color:#3ac79a; color:#6bffce; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  td select { padding:6px 8px; }
+  .small { font-size:12px; color:var(--muted); }
+  .tag { font-size:11px; color:var(--muted); }
+  .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div><a href="/">← Retour au jeu</a></div>
+    <div class="small">Trouve le Faux</div>
+  </div>
+  <h1>Mon compte</h1>
+  <p class="sub">Crée un compte pour jouer avec un pseudo vérifié et débloquer des droits selon ton grade.</p>
+
+  <!-- Statut connecté -->
+  <div class="card" id="meCard">
+    <h2>Statut</h2>
+    <div id="meBox" class="me"><span class="small">Chargement…</span></div>
+    <button id="logoutBtn" class="ghost hidden">Se déconnecter</button>
+  </div>
+
+  <!-- Connexion -->
+  <div class="card" id="loginCard">
+    <h2>Se connecter</h2>
+    <div class="row">
+      <div><label>Pseudo</label><input id="li_user" autocomplete="username" /></div>
+      <div><label>Mot de passe</label><input id="li_pass" type="password" autocomplete="current-password" /></div>
+    </div>
+    <button id="loginBtn">Connexion</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <!-- Inscription -->
+  <div class="card" id="regCard">
+    <h2>Créer un compte</h2>
+    <div class="row">
+      <div><label>Pseudo (3-16 caractères)</label><input id="rg_user" autocomplete="username" /></div>
+      <div><label>Mot de passe (6+ caractères)</label><input id="rg_pass" type="password" autocomplete="new-password" /></div>
+    </div>
+    <button id="regBtn">Créer mon compte</button>
+    <div class="msg" id="regMsg"></div>
+  </div>
+
+  <!-- Panneau admin (manage_users) -->
+  <div class="card hidden" id="adminCard">
+    <h2>👑 Administration — utilisateurs</h2>
+    <p class="small">Modifie les grades et bannis des comptes. (Seul un owner peut nommer un owner.)</p>
+    <div id="usersBox"><span class="small">Chargement…</span></div>
+  </div>
+</div>
+
+<script>
+const TKEY = 'tlf_token';
+const token = () => localStorage.getItem(TKEY) || '';
+const setToken = (t) => t ? localStorage.setItem(TKEY, t) : localStorage.removeItem(TKEY);
+const $ = (id) => document.getElementById(id);
+const ROLE_LABEL = { owner:'Owner', admin:'Admin', moderator:'Modérateur', player:'Joueur' };
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({ 'Content-Type':'application/json' }, opts.headers || {});
+  if (token()) headers['Authorization'] = 'Bearer ' + token();
+  const r = await fetch(path, Object.assign({}, opts, { headers }));
+  let data = {}; try { data = await r.json(); } catch {}
+  return { ok: r.ok, status: r.status, data };
+}
+
+function roleBadge(role) {
+  const cls = ['owner','admin','moderator'].includes(role) ? role : '';
+  return `<span class="badge ${cls}">${ROLE_LABEL[role] || role}</span>`;
+}
+
+let CURRENT = null;
+async function refreshMe() {
+  const { data } = await api('/api/me');
+  CURRENT = data.user;
+  const box = $('meBox');
+  if (CURRENT) {
+    box.innerHTML = `Connecté en tant que <strong>${CURRENT.username}</strong> ${roleBadge(CURRENT.role)}`
+      + (CURRENT.viaIp ? ' <span class="tag">(reconnu par IP)</span>' : '');
+    $('logoutBtn').classList.remove('hidden');
+    $('loginCard').classList.add('hidden');
+    $('regCard').classList.add('hidden');
+    if (CURRENT.permissions.includes('*') || CURRENT.permissions.includes('manage_users')) {
+      $('adminCard').classList.remove('hidden');
+      loadUsers();
+    } else $('adminCard').classList.add('hidden');
+  } else {
+    box.innerHTML = '<span class="small">Non connecté. Connecte-toi ou crée un compte ci-dessous.</span>';
+    $('logoutBtn').classList.add('hidden');
+    $('loginCard').classList.remove('hidden');
+    $('regCard').classList.remove('hidden');
+    $('adminCard').classList.add('hidden');
+  }
+  if (!data.dbEnabled) {
+    $('loginMsg').className = 'msg err';
+    $('loginMsg').textContent = '⚠️ Base de données indisponible côté serveur.';
+  }
+}
+
+$('loginBtn').onclick = async () => {
+  const m = $('loginMsg'); m.textContent = '…'; m.className = 'msg';
+  const { ok, data } = await api('/api/login', { method:'POST', body: JSON.stringify({ username:$('li_user').value.trim(), password:$('li_pass').value }) });
+  if (ok && data.token) { setToken(data.token); m.className='msg ok'; m.textContent='Connecté !'; await refreshMe(); }
+  else { m.className='msg err'; m.textContent = data.error || 'Échec de connexion.'; }
+};
+
+$('regBtn').onclick = async () => {
+  const m = $('regMsg'); m.textContent = '…'; m.className = 'msg';
+  const { ok, data } = await api('/api/register', { method:'POST', body: JSON.stringify({ username:$('rg_user').value.trim(), password:$('rg_pass').value }) });
+  if (ok && data.token) { setToken(data.token); m.className='msg ok'; m.textContent='Compte créé !'; await refreshMe(); }
+  else { m.className='msg err'; m.textContent = data.error || 'Échec.'; }
+};
+
+$('logoutBtn').onclick = async () => { await api('/api/logout', { method:'POST' }); setToken(''); await refreshMe(); };
+
+async function loadUsers() {
+  const { ok, data } = await api('/api/admin/users');
+  if (!ok) { $('usersBox').innerHTML = `<span class="small">${data.error || 'Accès refusé.'}</span>`; return; }
+  const roles = data.roles || ['owner','admin','moderator','player'];
+  const rows = data.users.map(u => {
+    const opts = roles.map(r => `<option value="${r}" ${r===u.role?'selected':''}>${ROLE_LABEL[r]||r}</option>`).join('');
+    return `<tr data-id="${u.id}">
+      <td>#${u.id}</td>
+      <td><strong>${u.username}</strong>${u.banned?' <span class="badge" style="color:#ff5c7c">banni</span>':''}</td>
+      <td><select class="roleSel">${opts}</select></td>
+      <td><button class="ghost banBtn">${u.banned?'Débannir':'Bannir'}</button></td>
+      <td class="small">${u.last_ip||''}</td>
+    </tr>`;
+  }).join('');
+  $('usersBox').innerHTML = `<table><thead><tr><th>ID</th><th>Pseudo</th><th>Grade</th><th>Action</th><th>Dernière IP</th></tr></thead><tbody>${rows}</tbody></table>`;
+  document.querySelectorAll('.roleSel').forEach(sel => sel.onchange = async (e) => {
+    const id = +e.target.closest('tr').dataset.id;
+    const { ok, data } = await api('/api/admin/setrole', { method:'POST', body: JSON.stringify({ userId:id, role:e.target.value }) });
+    if (!ok) { alert(data.error || 'Erreur'); loadUsers(); }
+  });
+  document.querySelectorAll('.banBtn').forEach(btn => btn.onclick = async (e) => {
+    const tr = e.target.closest('tr'); const id = +tr.dataset.id;
+    const banning = e.target.textContent.trim() === 'Bannir';
+    const { ok, data } = await api('/api/admin/ban', { method:'POST', body: JSON.stringify({ userId:id, banned:banning }) });
+    if (!ok) alert(data.error || 'Erreur');
+    loadUsers();
+  });
+}
+
+refreshMe();
+</script>
+</body>
+</html>
